@@ -351,9 +351,12 @@ static Tensor mps_convolution_backward_input(IntArrayRef input_size,
   TensorArg grad_output{grad_output_t, "grad_output", 1}, weight{weight_t, "weight", 2};
   checkAllSameType(c, {grad_output, weight});
   checkAllSameGPU(c, {grad_output, weight});
-  auto memory_format = grad_output_t.suggest_memory_format();
-  bool is_channels_last = (memory_format == at::MemoryFormat::ChannelsLast) && !is3DConv;
-  auto grad_input_t = at::empty(input_size, grad_output_t.options(), std::nullopt);
+  constexpr auto kChannelsLast = at::MemoryFormat::ChannelsLast;
+  bool is_channels_last =
+      (grad_output_t.suggest_memory_format() == kChannelsLast || weight_t.suggest_memory_format() == kChannelsLast) &&
+      !is3DConv;
+  auto grad_input_t =
+      at::empty(input_size, grad_output_t.options(), is_channels_last ? std::optional(kChannelsLast) : std::nullopt);
 
   // Avoid "grad_input" when this is being used as transposed convolution
   TensorArg grad_input{grad_input_t, "result", 0};
@@ -370,7 +373,6 @@ static Tensor mps_convolution_backward_input(IntArrayRef input_size,
   // Add backward with input
   @autoreleasepool {
     MPSStream* stream = getCurrentMPSStream();
-
     MPSShape* mps_input_shape = getMPSShape(input_size);
     std::string key = fmt::format("mps_{}_convolution_backward_input:{}:{}:{}:{}:{}:{}",
                                   is3DConv ? "3d_" : "",
@@ -477,6 +479,10 @@ static Tensor mps_convolution_backward_weights(IntArrayRef weight_size,
   bool is3DConv = input_t.dim() == 5;
   TORCH_CHECK(isFloatingType(grad_output_t.scalar_type()), "Convolution is supported only for Floating types");
   CheckedFrom c = "mps_convolution_backward_weights";
+  constexpr auto kChannelsLast = at::MemoryFormat::ChannelsLast;
+  bool is_channels_last =
+      (input_t.suggest_memory_format() == kChannelsLast || grad_output_t.suggest_memory_format() == kChannelsLast) &&
+      !is3DConv;
 
   // For uniformity with everything else, although it seems grad_weight
   // would be unambiguous too.
@@ -487,7 +493,7 @@ static Tensor mps_convolution_backward_weights(IntArrayRef weight_size,
   checkAllSameGPU(c, {grad_output, input});
 
   auto grad_weight_t =
-      at::empty(weight_size, grad_output_t.scalar_type(), std::nullopt, kMPS, std::nullopt, std::nullopt);
+      at::empty(weight_size, grad_output_t.options(), is_channels_last ? std::optional(kChannelsLast) : std::nullopt);
   TensorArg grad_weight{grad_weight_t, "result", 0};
 
   convolution_shape_check(c, input, grad_weight, grad_output, padding, stride, dilation, groups);
@@ -504,12 +510,13 @@ static Tensor mps_convolution_backward_weights(IntArrayRef weight_size,
     MPSStream* stream = getCurrentMPSStream();
 
     MPSShape* mps_weight_shape = getMPSShape(weight_size);
-    std::string key = fmt::format("mps_{}convolution_backward_weights:{}:{}:{}:{}:{}",
+    std::string key = fmt::format("mps_{}convolution_backward_weights:{}:{}:{}:{}:{}:{}",
                                   is3DConv ? "3d_" : "",
                                   getArrayRefString(stride),
                                   getArrayRefString(dilation),
                                   getArrayRefString(padding),
                                   groups,
+                                  is_channels_last,
                                   getTensorsStringKey({grad_output_t, input_t, grad_weight_t}));
     auto cachedGraph = LookUpOrCreateCachedGraph<CachedGraph>(key, [&](auto mpsGraph, auto newCachedGraph) {
       MPSShape* inputShape = getMPSShape(input_t);
