@@ -1,10 +1,10 @@
 from typing import Any
 
 import torch
+from torch._dynamo.guards import install_guard
 from torch.fx import Proxy
 
 from .. import graph_break_hints
-from ..codegen import PyCodegen
 from ..exc import TYPE_CHECKING, unimplemented_v2
 from .base import VariableTracker
 from .constant import ConstantVariable
@@ -12,6 +12,7 @@ from .constant import ConstantVariable
 
 if TYPE_CHECKING:
     from torch._dynamo.symbolic_convert import InstructionTranslator
+    from ..codegen import PyCodegen
 
 
 class StreamVariable(VariableTracker):
@@ -69,11 +70,18 @@ class StreamVariable(VariableTracker):
                 ),
             )
         elif name in cmp_name_to_op_mapping and len(args) == 1 and not kwargs:
+            from ..guards import install_guard, GuardBuilder
+            if self.source:
+                install_guard(self.source.make_guard(GuardBuilder.EQUALS_MATCH))
+
             # NB : Checking for mutation is necessary because we compare
             # constant values
             other = args[0]
             if not isinstance(other, StreamVariable):
                 return ConstantVariable.create(NotImplemented)
+
+            if other.source:
+                install_guard(self.source.make_guard(GuardBuilder.EQUALS_MATCH))
             return ConstantVariable.create(
                 cmp_name_to_op_mapping[name](self.value, other.value)  # type: ignore[arg-type]
             )
@@ -83,7 +91,7 @@ class StreamVariable(VariableTracker):
     def as_proxy(self) -> Proxy:
         return self.proxy
 
-    def reconstruct(self, codegen: PyCodegen) -> None:
+    def reconstruct(self, codegen: "PyCodegen") -> None:
         # If we got here, this stream is fully subsumed by the graph - this means it is
         # not an input or global
         assert not self.source
@@ -146,7 +154,7 @@ class EventVariable(VariableTracker):
     def as_proxy(self) -> Proxy:
         return self.proxy
 
-    def reconstruct(self, codegen: PyCodegen) -> None:
+    def reconstruct(self, codegen: "PyCodegen") -> None:
         # If we got here, this event is fully subsumed by the graph - this means it is
         # not an input or global
         assert not self.source
