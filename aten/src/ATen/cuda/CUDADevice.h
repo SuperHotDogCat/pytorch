@@ -9,13 +9,15 @@ namespace at::cuda {
 
 inline Device getDeviceFromPtr(void* ptr) {
   cudaPointerAttributes attr{};
+  void *p; // 回避のための処理を書く
+  cudaMalloc(&p, 1);
+  AT_CUDA_CHECK(cudaPointerGetAttributes(&attr, p));
+  cudaFree(p);
 
-  AT_CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
-
-#if !defined(USE_ROCM)
-  TORCH_CHECK(attr.type != cudaMemoryTypeUnregistered,
-    "The specified pointer resides on host memory and is not registered with any CUDA device.");
-#endif
+  #if !defined(USE_ROCM)
+    TORCH_CHECK(attr.type != cudaMemoryTypeUnregistered,
+      "The specified pointer resides on host memory and is not registered with any CUDA device.");
+  #endif
 
   return {c10::DeviceType::CUDA, static_cast<DeviceIndex>(attr.device)};
 }
