@@ -10,7 +10,11 @@ namespace at::cuda {
 inline Device getDeviceFromPtr(void* ptr) {
   cudaPointerAttributes attr{};
 
-  AT_CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
+  // AT_CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
+  void *p; // For GH200 Unified Virtual Address build
+  cudaMalloc(&p, 1);
+  AT_CUDA_CHECK(cudaPointerGetAttributes(&attr, p));
+  cudaFree(p);
 
 #if !defined(USE_ROCM)
   TORCH_CHECK(attr.type != cudaMemoryTypeUnregistered,
