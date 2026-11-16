@@ -6,9 +6,9 @@
 #include <cuda_runtime.h>
 namespace extension {
 
-TORCH_API void registerNUMAPointer(void*);
-TORCH_API void unregisterNUMAPointer(void*);
-TORCH_API bool isNUMAPointer(void*);
+  TORCH_API void registerNUMAPointer(void* ptr, size_t bytes);
+  TORCH_API void unregisterNUMAPointer(void* ptr);
+  TORCH_API bool isNUMAPointer(void* ptr);
 
 }
 
